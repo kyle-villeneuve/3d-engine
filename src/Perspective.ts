@@ -1,175 +1,120 @@
-import Point2D from "./Point2D";
-import Point3D from "./Point3D";
-import Poly from "./Poly";
-import Vector from "./Vector";
+import { execFn } from '@skusavvy/common';
+import Axis from './Axis';
+import Cuboid from './Cuboid';
+import Point2D from './Point2D';
+import Point3D from './Point3D';
+import Vector from './Vector';
 
 class Perspective {
-  private _size = 20;
-
+  private scale: number = 20;
+  originAxesColor?: string;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
-  xAxis = new Vector(120);
-  yAxis = new Vector(-120);
+  xAxis = new Vector(130);
+  yAxis = new Vector(-130);
   zAxis = new Vector(0);
   depth = new Point3D(this.xAxis.y, this.yAxis.y, -this.zAxis.y); // projections have z as depth
-  origin = new Point2D(window.innerWidth / 2, window.innerHeight / 2); // (0,0) default 2D point;
+  origin = new Point2D();
 
-  // @ts-ignore assigned by setter `size`
-  _vertices: [
-    Point3D,
-    Point3D,
-    Point3D,
-    Point3D,
-    Point3D,
-    Point3D,
-    Point3D,
-    Point3D,
-    Point3D
-  ];
+  axes: [Axis, Axis, Axis];
+  shapes: Cuboid[] = [];
 
-  // prettier-ignore
-  static polygons = [
-    new Poly(false ? 'rgba(255, 0, 0, 0.5)' : 'rgba(100, 100, 100, 0.33)', 1, 2, 6, 5), // right face
-    new Poly(false ? 'rgba(255, 0, 0, 0.5)' : 'rgba(100, 100, 100, 0.33)', 2, 3, 7, 6), // front face
-    new Poly(false ? 'rgba(255, 0, 0, 0.5)' : 'rgba(100, 100, 100, 0.33)', 4, 5, 6, 7), // top face
-    new Poly(false ? 'rgba(255, 0, 0, 0.5)' : 'rgba(100, 100, 100, 0.33)', 1, 5, 4, 8), // back right
-    new Poly(false ? 'rgba(255, 0, 0, 0.5)' : 'rgba(100, 100, 100, 0.33)', 8, 4, 7, 3), // back left
-    new Poly(false ? 'rgba(255, 0, 0, 0.5)' : 'rgba(100, 100, 100, 0.33)', 1, 2, 3, 8), // bottom
-  ];
-
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, width: number, height: number, originAxesColor?: string) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d")!;
-    this.size = 30;
+    canvas.width = width;
+    canvas.height = height;
+    this.originAxesColor = originAxesColor;
+    this.ctx = canvas.getContext('2d')!;
+    this.scale = 10;
     this.render = this.render.bind(this);
     this.project = this.project.bind(this);
-    this.renderAxis = this.renderAxis.bind(this);
-    this.renderAxes = this.renderAxes.bind(this);
-  }
+    this.renderOrigin = this.renderOrigin.bind(this);
+    this.origin = new Point2D(width / 2, height / 2);
 
-  get size() {
-    return this._size;
-  }
-
-  set size(size: number) {
-    const hs = size / 2;
-    this._size = size;
-
-    this._vertices = [
-      new Point3D(-hs, -hs, -hs), // lower top left  index 0
-      new Point3D(hs, -hs, -hs), // lower top right
-      new Point3D(hs, hs, -hs), // lower bottom right
-      new Point3D(-hs, hs, -hs), // lower bottom left
-      new Point3D(-hs, -hs, hs), // upper top left  index 4
-      new Point3D(hs, -hs, hs), // upper top right
-      new Point3D(hs, hs, hs), // upper bottom right
-      new Point3D(-hs, hs, hs), // upper  bottom left index 7
-      new Point3D(-hs, -hs, -hs),
+    this.axes = [
+      new Axis('x', 1000, this.originAxesColor),
+      new Axis('y', 1000, this.originAxesColor),
+      new Axis('z', 1000, this.originAxesColor),
     ];
   }
 
-  project(p: Point3D, retP = new Point3D()) {
-    retP.x =
-      p.x * this.xAxis.x +
-      p.y * this.yAxis.x +
-      p.z * this.zAxis.x +
-      this.origin.x;
-    retP.y =
-      p.x * this.xAxis.y +
-      p.y * this.yAxis.y +
-      p.z * this.zAxis.y +
-      this.origin.y;
-    retP.z = p.x * this.depth.x + p.y * this.depth.y + p.z * this.depth.z;
-    return retP;
+  setDimensions(width: number, height = width) {
+    this.canvas.width = width;
+    this.canvas.height = height;
+    this.origin = new Point2D(width / 2, height / 2);
+    return this.render();
   }
 
-  pan(axis: "x" | "y" | "z", delta: number) {
+  setScale(size: number | ((size: number) => number)) {
+    this.scale = execFn(size, this.scale);
+
+    this.render();
+    return this;
+  }
+
+  addShape(...shape: Cuboid[]) {
+    this.shapes.push(...shape);
+    this.render();
+    return this;
+  }
+
+  replaceShape(...shape: Cuboid[]) {
+    this.shapes = [];
+    return this.addShape(...shape);
+  }
+
+  project(p: Point3D): Point3D {
+    const x = this.scale * (p.x * this.xAxis.x + p.y * this.yAxis.x + p.z * this.zAxis.x) + this.origin.x;
+    const y = this.scale * (p.x * this.xAxis.y + p.y * this.yAxis.y + p.z * this.zAxis.y) + this.origin.y;
+    const z = this.scale * (p.x * this.depth.x + p.y * this.depth.y + p.z * this.depth.z);
+
+    return new Point3D(x, y, z);
+  }
+
+  rotate(axis: 'x' | 'y' | 'z', delta: number) {
     switch (axis) {
-      case "x": {
+      case 'x': {
         this.xAxis.pan(delta);
         this.yAxis.pan(delta);
         break;
       }
-      case "y": {
+      case 'y': {
         // this.zAxis.pan(-delta);
-        // this.yAxis.pan(-delta);
+        this.yAxis.pan(-delta);
         this.xAxis.pan(delta);
         break;
       }
-      case "z": {
+      case 'z': {
         // TODO ?
         break;
       }
     }
+
+    return this.render();
   }
 
-  renderAxis(vert: Point3D, color = "red") {
-    const pt = new Point3D(
-      vert.x * this.size,
-      vert.y * this.size,
-      vert.z * this.size
-    );
-    const projected = this.project(pt);
-
-    this.ctx.strokeStyle = color;
-    this.ctx.lineWidth = 2;
-    this.ctx.beginPath();
-    this.ctx.moveTo(this.origin.x, this.origin.y);
-    this.ctx.lineTo(projected.x, projected.y);
-    this.ctx.fill();
-    this.ctx.stroke();
+  pan(axis: 'x' | 'y', delta: number) {
+    this.origin[axis] += delta;
+    return this.render();
   }
 
-  renderAxes() {
-    this.renderAxis(this._vertices[1], "blue");
-    this.renderAxis(this._vertices[2], "red");
-    this.renderAxis(this._vertices[3], "yellow");
-    this.renderAxis(this._vertices[4], "fuchsia");
-    this.renderAxis(this._vertices[5], "green");
-    this.renderAxis(this._vertices[6], "orange");
-    this.renderAxis(this._vertices[7], "teal");
-    this.renderAxis(this._vertices[8], "purple");
+  renderOrigin() {
+    if (!this.originAxesColor) return;
+    this.axes[0].render(this.ctx, this.project, this.origin);
+    this.axes[1].render(this.ctx, this.project, this.origin);
+    this.axes[2].render(this.ctx, this.project, this.origin);
   }
 
   render() {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.clearRect(0, 0, this.canvas.offsetWidth, this.canvas.offsetHeight);
 
-    this.renderAxes();
+    this.renderOrigin();
 
-    const shapes = [];
-
-    for (let z = -0.5; z <= 0.5; z++) {
-      for (let y = -0.5; y <= 0.5; y++) {
-        for (let x = -0.5; x <= 0.5; x++) {
-          const shape = this._vertices
-            .map((vert) => {
-              return new Point3D(
-                vert.x + x * this.size,
-                vert.y + y * this.size,
-                vert.z + z * this.size
-              );
-            })
-            .map((vert) => this.project(vert));
-
-          shapes.push(shape);
-        }
-      }
-    }
-
-    shapes.forEach((shape) => {
-      Perspective.polygons.forEach((poly) => {
-        this.ctx.fillStyle = poly.colour;
-        this.ctx.strokeStyle = "#fff";
-        this.ctx.lineWidth = 1;
-        this.ctx.beginPath();
-        poly.indexes.forEach((index) => {
-          const { x, y } = shape[index];
-          this.ctx.lineTo(x, y);
-        });
-        this.ctx.fill();
-        this.ctx.stroke();
-      });
+    this.shapes.forEach((shape) => {
+      shape.render(this.ctx, this.project);
     });
+
+    return this;
   }
 }
 
